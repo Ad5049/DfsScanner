@@ -4,13 +4,12 @@ import numpy as np
 import requests
 
 # Page Config
-st.set_page_config(page_title="Optimized Low-Credit Main Market +EV Scanner", layout="wide")
+st.set_page_config(page_title="Major League Main Market +EV Scanner", layout="wide")
 
-st.title("🎯 Optimized Low-Credit Main Market +EV Scanner")
-st.markdown("Scanning major leagues via bulk sports-level feeds (**Spreads, Moneyline, Totals**) across **DraftKings, Hard Rock, Fliff, Novig, ProphetX, Bovada, and MyBookie** (Flat **$5.00** units | ~9 API credits per run).")
+st.title("🎯 Major League Main Market +EV Scanner")
+st.markdown("Scanning North American major leagues (**NFL, NCAAF, NBA, NCAAB, MLB, NHL**) for main lines (**Spreads, Moneyline, Totals**) across your books with **Multi-Format Odds (American, Decimal, & Implied %)**.")
 
 # Sidebar Configuration Controls
-st.sidebar.header("API Configuration")
 api_key = st.sidebar.text_input("Odds API Key", value="aa80562ae5fb97cfd71d78bc63a0cb1e", type="password")
 
 st.sidebar.header("Bankroll & Risk Management")
@@ -22,12 +21,21 @@ min_edge = st.sidebar.slider("Minimum EV Floor (%)", min_value=1.0, max_value=25
 st.sidebar.caption("💡 *Lower threshold floor. All higher positive EV plays will automatically display.*")
 
 # Main Screen Master Scan Button
-scan_button = st.button("🚀 Run Ultra-Low Credit EV Scan", type="primary", use_container_width=True)
+scan_button = st.button("🚀 Run Major League EV Scan", type="primary", use_container_width=True)
 
 st.markdown("---")
 
+def convert_odds_formats(american_odds):
+    """Converts American odds to Decimal and Implied Probability (%)"""
+    if american_odds > 0:
+        dec = (american_odds / 100.0) + 1.0
+        prob = 100.0 / (american_odds + 100.0)
+    else:
+        dec = (100.0 / abs(american_odds)) + 1.0
+        prob = abs(american_odds) / (abs(american_odds) + 100.0)
+    return round(dec, 2), round(prob * 100.0, 2)
+
 def devig_and_calc_ev(over_odds, under_odds, chosen_odds):
-    """Calculates true probability via devigging and computes Expected Value (EV %)."""
     def to_dec(odds):
         return (odds / 100.0) + 1.0 if odds > 0 else (100.0 / abs(odds)) + 1.0
     
@@ -48,13 +56,12 @@ def devig_and_calc_ev(over_odds, under_odds, chosen_odds):
     return true_prob, ev_pct
 
 @st.cache_data(ttl=300)
-def fetch_low_credit_main_market_bets(key, min_ev):
-    # Focused, high-liquidity major leagues list (9 sports = 9 total API requests)
+def fetch_main_market_bets(key, min_ev):
+    # Soccer excluded entirely; focused strictly on North American major sports leagues
     sports_list = [
         "americanfootball_nfl", "americanfootball_ncaaf",
         "basketball_nba", "basketball_ncaab",
-        "baseball_mlb", "icehockey_nhl",
-        "soccer_epl", "soccer_spain_la_liga", "soccer_germany_bundesliga"
+        "baseball_mlb", "icehockey_nhl"
     ]
     main_markets = "h2h,spreads,totals"
     
@@ -72,7 +79,6 @@ def fetch_low_credit_main_market_bets(key, min_ev):
     
     try:
         for sport in sports_list:
-            # Single bulk odds request per sport (pulls all games and markets at once)
             odds_url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds"
             odds_res = requests.get(odds_url, params={
                 "apiKey": key,
@@ -115,15 +121,18 @@ def fetch_low_credit_main_market_bets(key, min_ev):
                                     true_prob, ev_pct = devig_and_calc_ev(price1, price2, price)
                                     
                                     if ev_pct >= min_ev:
+                                        dec_val, implied_pct = convert_odds_formats(price)
+                                        formatted_odds = f"{price:+d} | Dec: {dec_val} | Impl: {implied_pct}%"
+                                        
                                         all_rows.append({
                                             "Sport": sport.upper(),
                                             "Matchup": matchup_str,
                                             "Market": market_label,
                                             "Bookmaker": book_title,
                                             "Pick": side_name,
-                                            "Odds": price,
-                                            "True Prob": true_prob,
-                                            "EV (%)": round(ev_pct, 2)
+                                            "Odds Info": formatted_odds,
+                                            "Raw EV": ev_pct,
+                                            "EV (%)": f"+{round(ev_pct, 2)}%"
                                         })
         if all_rows:
             return pd.DataFrame(all_rows)
@@ -135,22 +144,22 @@ def fetch_low_credit_main_market_bets(key, min_ev):
 # Execution Flow on Scan Button Click
 if scan_button:
     st.session_state["scanned"] = True
-    with st.spinner("⚡ Running ultra-low credit scan across sports..."):
-        st.session_state["df_data"] = fetch_low_credit_main_market_bets(api_key, min_edge)
+    with st.spinner("⚡ Scanning North American major leagues..."):
+        st.session_state["df_data"] = fetch_main_market_bets(api_key, min_edge)
 
 # Render Results
 if st.session_state.get("scanned", False):
     df = st.session_state.get("df_data", pd.DataFrame())
     
     if not df.empty:
-        filtered_df = df[df["EV (%)"] >= min_edge].sort_values(by="EV (%)", ascending=False).reset_index(drop=True)
+        filtered_df = df[df["Raw EV"] >= min_edge].sort_values(by="Raw EV", ascending=False).reset_index(drop=True)
 
         if not filtered_df.empty:
-            st.subheader(f"🔥 Main Market Straight Bet +EV Board (EV ≥ {min_edge}%)")
-            st.markdown(f"Flat stake configured: **${flat_stake:.2f}** per straight bet on high-liquidity major leagues.")
+            st.subheader(f"🔥 Major League Main Market Board (EV ≥ {min_edge}%)")
+            st.markdown(f"Flat stake configured: **${flat_stake:.2f}** per straight bet.")
             
             st.dataframe(
-                filtered_df[["Sport", "Bookmaker", "Matchup", "Market", "Pick", "Odds", "EV (%)"]], 
+                filtered_df[["Sport", "Bookmaker", "Matchup", "Market", "Pick", "Odds Info", "EV (%)"]], 
                 use_container_width=True
             )
             
@@ -161,14 +170,14 @@ if st.session_state.get("scanned", False):
                 col1, col2 = st.columns([3, 1])
                 with col1:
                     st.write(f"**{row['Bookmaker']}** | [{row['Sport']}] {row['Matchup']} — **{row['Market']}**")
-                    st.caption(f"Pick: **{row['Pick']}** @ **{row['Odds']:+d}** | Calculated Edge: **+{row['EV (%)']}%** | True Prob: **{row['True Prob']*100:.1f}%**")
+                    st.caption(f"Pick: **{row['Pick']}** | Odds: **{row['Odds Info']}** | Edge: **{row['EV (%)']}**")
                 with col2:
                     st.markdown(f"**Stake:**\n💰 **${flat_stake:.2f}**")
                 st.markdown("---")
         else:
-            st.warning(f"The market has no plays meeting or exceeding +{min_edge}% EV right now across major leagues.")
+            st.warning(f"The market has no plays meeting or exceeding +{min_edge}% EV right now.")
     else:
-        st.warning("The market has no plays right now. Live/upcoming odds feeds are currently empty for the selected major leagues and books.")
+        st.warning("The market has no plays right now. Live/upcoming odds feeds are currently empty for the selected North American sports and books.")
 else:
-    st.info("👆 Click the **🚀 Run Ultra-Low Credit EV Scan** button above to load live straight bets.")
+    st.info("👆 Click the **🚀 Run Major League EV Scan** button above to load live straight bets.")
     
