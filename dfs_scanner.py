@@ -45,58 +45,53 @@ def devig_odds(over_odds, under_odds):
 
 @st.cache_data(ttl=300)
 def fetch_all_sports_odds(key):
-    # 1. Fetch all active sports from The Odds API
     sports_url = f"https://api.the-odds-api.com/v4/sports?apiKey={key}"
     all_rows = []
     
     try:
         sports_res = requests.get(sports_url)
-        if sports_res.status_code == 200:
-            sports = sports_res.json()
-            # Iterate through active sports keys
-            active_sports = [s["key"] for s in sports if s.get("active", False)]
+        if sports_res.status_code != 200:
+            st.error(f"API Authentication Error (Status {sports_res.status_code}): Check your Odds API key.")
+            return pd.DataFrame()
             
-            # Limit scan scope to major active leagues to protect rate limits, or parse all if desired
-            for sport in active_sports[:8]:
-                odds_url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds"
-                params = {
-                    "apiKey": key,
-                    "regions": "us",
-                    "markets": "totals",
-                    "oddsFormat": "american"
-                }
-                res = requests.get(odds_url, params=params)
-                if res.status_code == 200:
-                    games = res.json()
-                    for game in games:
-                        home = game.get("home_team", "Home")
-                        away = game.get("away_team", "Away")
-                        for book in game.get("bookmakers", []):
-                            for market in book.get("markets", []):
-                                if market.get("key") == "totals":
-                                    for outcome in market.get("outcomes", []):
-                                        all_rows.append({
-                                            "Player": f"{away} @ {home}",
-                                            "Prop": f"Total ({outcome.get('name')})",
-                                            "Line": outcome.get("point", 0.0),
-                                            "Platform": book.get("title"),
-                                            "Sharp_Over_Odds": -110,
-                                            "Sharp_Under_Odds": -110,
-                                            "Recommendation": outcome.get("name")
-                                        })
+        sports = sports_res.json()
+        active_sports = [s["key"] for s in sports if s.get("active", False)]
+        
+        # Loop through active sports to fetch totals/odds data
+        for sport in active_sports[:6]: # Capped to protect rate limits while scanning
+            odds_url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds"
+            params = {
+                "apiKey": key,
+                "regions": "us",
+                "markets": "totals",
+                "oddsFormat": "american"
+            }
+            res = requests.get(odds_url, params=params)
+            if res.status_code == 200:
+                games = res.json()
+                for game in games:
+                    home = game.get("home_team", "Home")
+                    away = game.get("away_team", "Away")
+                    for book in game.get("bookmakers", []):
+                        for market in book.get("markets", []):
+                            if market.get("key") == "totals":
+                                for outcome in market.get("outcomes", []):
+                                    all_rows.append({
+                                        "Player": f"{away} @ {home}",
+                                        "Prop": f"Total ({outcome.get('name')})",
+                                        "Line": outcome.get("point", 0.0),
+                                        "Platform": book.get("title"),
+                                        "Sharp_Over_Odds": -110,
+                                        "Sharp_Under_Odds": -110,
+                                        "Recommendation": outcome.get("name")
+                                    })
         if all_rows:
             return pd.DataFrame(all_rows)
             
     except Exception as e:
-        st.error(f"API Scan Error: {e}")
+        st.error(f"Connection Exception: {e}")
 
-    # Fallback dataset if API payload returns empty
-    return pd.DataFrame([
-        {"Player": "LeBron James", "Prop": "Points", "Line": 24.5, "Platform": "PrizePicks", "Sharp_Over_Odds": -135, "Sharp_Under_Odds": +105, "Recommendation": "Over"},
-        {"Player": "Nikola Jokic", "Prop": "Rebounds", "Line": 11.5, "Platform": "Underdog", "Sharp_Over_Odds": +110, "Sharp_Under_Odds": -140, "Recommendation": "Under"},
-        {"Player": "Connor McDavid", "Prop": "Shots on Goal", "Line": 3.5, "Platform": "Sleeper", "Sharp_Over_Odds": -150, "Sharp_Under_Odds": +120, "Recommendation": "Under"},
-        {"Player": "Shohei Ohtani", "Prop": "Total Bases", "Line": 1.5, "Platform": "PrizePicks", "Sharp_Over_Odds": -125, "Sharp_Under_Odds": -105, "Recommendation": "Over"}
-    ])
+    return pd.DataFrame()
 
 # Execution Flow on Scan Button Click
 if scan_button:
@@ -151,7 +146,7 @@ if st.session_state.get("scanned", False):
         else:
             st.info("Select legs above to preview your combined entry metrics.")
     else:
-        st.warning("No data returned. Check your API key or active markets.")
+        st.warning("No live market rows returned for the current active sports window. Check your API key or try again.")
 else:
     st.info("👆 Click the **🚀 Run Live Scan Across All Sports** button above to load the board.")
     
