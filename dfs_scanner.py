@@ -4,10 +4,10 @@ import numpy as np
 import requests
 
 # Page Config
-st.set_page_config(page_title="Global Main Market Straight Bet +EV Scanner", layout="wide")
+st.set_page_config(page_title="Main Market Straight Bet +EV Scanner", layout="wide")
 
-st.title("🎯 Global Main Market Straight Bet +EV Scanner")
-st.markdown("Scanning **every in-season sport** worldwide for high-liquidity main lines (**Spreads, Moneyline, Totals**) across **DraftKings, Hard Rock, Fliff, Novig, ProphetX, Bovada, and MyBookie** (Flat **$5.00** units).")
+st.title("🎯 Main Market Straight Bet +EV Scanner")
+st.markdown("Scanning high-liquidity leagues for main lines (**Spreads, Moneyline, Totals**) across **DraftKings, Hard Rock, Fliff, Novig, ProphetX, Bovada, and MyBookie** (Flat **$5.00** units).")
 
 # Sidebar Configuration Controls
 st.sidebar.header("API Configuration")
@@ -18,12 +18,11 @@ st.sidebar.info("Fixed Stake: **$5.00 per straight bet**")
 flat_stake = 5.00
 
 st.sidebar.header("Filter Settings")
-# Minimum floor set to 1.0%, defaults to 5.0%. No upper cap—all higher EV plays are displayed.
 min_edge = st.sidebar.slider("Minimum EV Floor (%)", min_value=1.0, max_value=25.0, value=5.0, step=0.5)
 st.sidebar.caption("💡 *This is a lower threshold floor. All higher positive EV plays will automatically display.*")
 
 # Main Screen Master Scan Button
-scan_button = st.button("🚀 Run Global Main Market EV Scan", type="primary", use_container_width=True)
+scan_button = st.button("🚀 Run Main Market EV Scan", type="primary", use_container_width=True)
 
 st.markdown("---")
 
@@ -49,7 +48,16 @@ def devig_and_calc_ev(over_odds, under_odds, chosen_odds):
     return true_prob, ev_pct
 
 @st.cache_data(ttl=300)
-def fetch_global_main_market_bets(key, min_ev):
+def fetch_main_market_bets(key, min_ev):
+    # Focused, high-liquidity major sports list
+    sports_list = [
+        "americanfootball_nfl", "americanfootball_ncaaf",
+        "basketball_nba", "basketball_ncaab",
+        "baseball_mlb", "icehockey_nhl",
+        "soccer_epl", "soccer_spain_la_liga", "soccer_germany_bundesliga"
+    ]
+    main_markets = ["h2h", "spreads", "totals"]
+    
     target_books = {
         "draftkings": "DraftKings Sportsbook",
         "hardrockbet": "Hard Rock Sportsbook",
@@ -60,27 +68,17 @@ def fetch_global_main_market_bets(key, min_ev):
         "mybookie": "MyBookie.ag"
     }
     
-    main_markets = ["h2h", "spreads", "totals"]
     all_rows = []
     
     try:
-        # Step 1: Dynamically fetch all active/in-season sports keys from the API
-        sports_res = requests.get("https://api.the-odds-api.com/v4/sports", params={"apiKey": key})
-        if sports_res.status_code != 200:
-            return pd.DataFrame()
-        
-        sports_data = sports_res.json()
-        active_sports = [s.get("key") for s in sports_data if s.get("active", True)]
-        
-        # Step 2: Loop through every active sport globally
-        for sport in active_sports:
+        for sport in sports_list:
             events_url = f"https://api.the-odds-api.com/v4/sports/{sport}/events"
             events_res = requests.get(events_url, params={"apiKey": key})
             if events_res.status_code != 200:
                 continue
             events = events_res.json()
             
-            for event in events[:5]: # Check upcoming events per sport
+            for event in events[:5]:
                 event_id = event.get("id")
                 home_team = event.get("home_team", "Home")
                 away_team = event.get("away_team", "Away")
@@ -140,7 +138,7 @@ def fetch_global_main_market_bets(key, min_ev):
 # Execution Flow on Scan Button Click
 if scan_button:
     st.session_state["scanned"] = True
-    st.session_state["df_data"] = fetch_global_main_market_bets(api_key, min_edge)
+    st.session_state["df_data"] = fetch_main_market_bets(api_key, min_edge)
 
 # Render Results
 if st.session_state.get("scanned", False):
@@ -150,8 +148,8 @@ if st.session_state.get("scanned", False):
         filtered_df = df[df["EV (%)"] >= min_edge].sort_values(by="EV (%)", ascending=False).reset_index(drop=True)
 
         if not filtered_df.empty:
-            st.subheader(f"🔥 Global Main Market Straight Bet +EV Board (EV ≥ {min_edge}%)")
-            st.markdown(f"Flat stake configured: **${flat_stake:.2f}** per straight bet on high-liquidity main markets across all active sports.")
+            st.subheader(f"🔥 Main Market Straight Bet +EV Board (EV ≥ {min_edge}%)")
+            st.markdown(f"Flat stake configured: **${flat_stake:.2f}** per straight bet on high-liquidity major leagues.")
             
             st.dataframe(
                 filtered_df[["Sport", "Bookmaker", "Matchup", "Market", "Pick", "Odds", "EV (%)"]], 
@@ -170,9 +168,9 @@ if st.session_state.get("scanned", False):
                     st.markdown(f"**Stake:**\n💰 **${flat_stake:.2f}**")
                 st.markdown("---")
         else:
-            st.warning(f"The global market has no plays meeting or exceeding +{min_edge}% EV right now. Try lowering your EV threshold or scanning closer to game times.")
+            st.warning(f"The market has no plays meeting or exceeding +{min_edge}% EV right now. Try lowering your EV threshold or scanning closer to game times.")
     else:
-        st.warning("The market has no plays right now. Live odds feeds are currently empty across the active global sports and books.")
+        st.warning("The market has no plays right now. Live odds feeds are currently empty for the selected sports and books.")
 else:
-    st.info("👆 Click the **🚀 Run Global Main Market EV Scan** button above to load live straight bets across all sports.")
+    st.info("👆 Click the **🚀 Run Main Market EV Scan** button above to load live straight bets.")
     
