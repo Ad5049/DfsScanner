@@ -12,14 +12,14 @@ st.markdown("Scanning high-liquidity markets (**Spreads, Moneyline, Totals, Alte
 # Sidebar Configuration Controls
 st.sidebar.header("API Configuration")
 api_key = st.sidebar.text_input("Odds API Key", value="aa80562ae5fb97cfd71d78bc63a0cb1e", type="password")
-force_test_mode = st.sidebar.checkbox("Use Board Simulator (Bypasses Dead Late-Night Hours)", value=True)
 
 st.sidebar.header("Bankroll & Risk Management")
 st.sidebar.info("Fixed Stake: **$5.00 per straight bet**")
 flat_stake = 5.00
 
 st.sidebar.header("Filter Settings")
-min_edge = st.sidebar.slider("Minimum EV (%)", min_value=0.5, max_value=10.0, value=1.5, step=0.5)
+# Starts at 5.0%, floor at 1.0%, upper cap extended to 25.0%
+min_edge = st.sidebar.slider("Minimum EV (%)", min_value=1.0, max_value=25.0, value=5.0, step=0.5)
 
 # Main Screen Master Scan Button
 scan_button = st.button("🚀 Run Main Market EV Scan", type="primary", use_container_width=True)
@@ -48,20 +48,8 @@ def devig_and_calc_ev(over_odds, under_odds, chosen_odds):
     return true_prob, ev_pct
 
 @st.cache_data(ttl=300)
-def fetch_main_market_bets(key, min_ev, test_mode):
-    if test_mode:
-        return pd.DataFrame([
-            {"Sport": "NBA", "Matchup": "Boston Celtics vs. Miami Heat", "Market": "Spread (-5.5)", "Bookmaker": "DraftKings Sportsbook", "Pick": "Celtics -5.5", "Odds": -108, "True Prob": 0.53, "EV (%)": 1.9},
-            {"Sport": "NBA", "Matchup": "Lakers vs. Warriors", "Market": "Total Points (Under 232.5)", "Bookmaker": "Hard Rock Sportsbook", "Pick": "Under 232.5", "Odds": +105, "True Prob": 0.51, "EV (%)": 4.5},
-            {"Sport": "MLB", "Matchup": "Yankees vs. Red Sox", "Market": "Moneyline", "Bookmaker": "Bovada", "Pick": "Yankees", "Odds": -115, "True Prob": 0.54, "EV (%)": 2.2},
-            {"Sport": "NHL", "Matchup": "Oilers vs. Maple Leafs", "Market": "Alternate Spread (-1.5)", "Bookmaker": "Fliff", "Pick": "Oilers -1.5", "Odds": +185, "True Prob": 0.37, "EV (%)": 5.4},
-            {"Sport": "NFL", "Matchup": "Chiefs vs. 49ers", "Market": "Total Points (Over 47.5)", "Bookmaker": "MyBookie.ag", "Pick": "Over 47.5", "Odds": -110, "True Prob": 0.53, "EV (%)": 1.7},
-            {"Sport": "NBA", "Matchup": "Bucks vs. Nuggets", "Market": "Alternate Spread (+3.5)", "Bookmaker": "Novig", "Pick": "Bucks +3.5", "Odds": -130, "True Prob": 0.60, "EV (%)": 3.8},
-            {"Sport": "MLB", "Matchup": "Dodgers vs. Padres", "Market": "Moneyline", "Bookmaker": "ProphetX", "Pick": "Padres", "Odds": +120, "True Prob": 0.48, "EV (%)": 5.6}
-        ])
-
+def fetch_main_market_bets(key, min_ev):
     sports_list = ["basketball_nba", "icehockey_nhl", "baseball_mlb", "americanfootball_nfl"]
-    # Targeting primary main markets: spreads, h2h (moneyline), totals
     main_markets = ["h2h", "spreads", "totals"]
     
     target_books = {
@@ -108,7 +96,6 @@ def fetch_main_market_bets(key, min_ev, test_mode):
                                 for m in book.get("markets", []):
                                     if m.get("key") == market:
                                         outcomes = m.get("outcomes", [])
-                                        # Main markets typically have two outcomes (Home/Away, Over/Under)
                                         if len(outcomes) >= 2:
                                             price1 = outcomes[0].get("price", -110)
                                             price2 = outcomes[1].get("price", -110)
@@ -145,19 +132,19 @@ def fetch_main_market_bets(key, min_ev, test_mode):
 # Execution Flow on Scan Button Click
 if scan_button:
     st.session_state["scanned"] = True
-    st.session_state["df_data"] = fetch_main_market_bets(api_key, min_edge, force_test_mode)
+    st.session_state["df_data"] = fetch_main_market_bets(api_key, min_edge)
 
 # Render Results
 if st.session_state.get("scanned", False):
     df = st.session_state.get("df_data", pd.DataFrame())
     
     if not df.empty:
-        st.subheader(f"🔥 Main Market Straight Bet +EV Board (EV ≥ {min_edge}%)")
-        st.markdown(f"Flat stake configured: **${flat_stake:.2f}** per straight bet on high-liquidity markets.")
-
         filtered_df = df[df["EV (%)"] >= min_edge].sort_values(by="EV (%)", ascending=False).reset_index(drop=True)
 
         if not filtered_df.empty:
+            st.subheader(f"🔥 Main Market Straight Bet +EV Board (EV ≥ {min_edge}%)")
+            st.markdown(f"Flat stake configured: **${flat_stake:.2f}** per straight bet on high-liquidity markets.")
+            
             st.dataframe(
                 filtered_df[["Sport", "Bookmaker", "Matchup", "Market", "Pick", "Odds", "EV (%)"]], 
                 use_container_width=True
@@ -175,9 +162,9 @@ if st.session_state.get("scanned", False):
                     st.markdown(f"**Stake:**\n💰 **${flat_stake:.2f}**")
                 st.markdown("---")
         else:
-            st.warning("No main market straight bets match your minimum EV filter right now.")
+            st.warning(f"The market has no plays meeting or exceeding +{min_edge}% EV right now. Try lowering your EV threshold or scanning closer to game times.")
     else:
-        st.warning("No live lines returned from the API feed. Try enabling the Board Simulator in the sidebar.")
+        st.warning("The market has no plays right now. Live odds feeds are currently empty for the selected sports and books.")
 else:
-    st.info("👆 Click the **🚀 Run Main Market EV Scan** button above to load main market bets.")
+    st.info("👆 Click the **🚀 Run Main Market EV Scan** button above to load live straight bets.")
     
