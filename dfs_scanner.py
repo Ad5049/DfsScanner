@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Page Config
-st.set_page_config(page_title="Major League Main Market +EV Scanner", layout="wide")
+st.set_page_config(page_title="Optimized Low-Credit Main Market +EV Scanner", layout="wide")
 
-st.title("🎯 Major League Main Market +EV Scanner")
-st.markdown("Scanning major leagues (**NFL, NCAAF, NBA, NCAAB, MLB, NHL, Soccer**) for main lines (**Spreads, Moneyline, Totals**) across **DraftKings, Hard Rock, Fliff, Novig, ProphetX, Bovada, and MyBookie** (Flat **$5.00** units).")
+st.title("🎯 Optimized Low-Credit Main Market +EV Scanner")
+st.markdown("Scanning major leagues via bulk sports-level feeds (**Spreads, Moneyline, Totals**) across **DraftKings, Hard Rock, Fliff, Novig, ProphetX, Bovada, and MyBookie** (Flat **$5.00** units | ~9 API credits per run).")
 
 # Sidebar Configuration Controls
 st.sidebar.header("API Configuration")
@@ -23,7 +22,7 @@ min_edge = st.sidebar.slider("Minimum EV Floor (%)", min_value=1.0, max_value=25
 st.sidebar.caption("💡 *Lower threshold floor. All higher positive EV plays will automatically display.*")
 
 # Main Screen Master Scan Button
-scan_button = st.button("🚀 Run Major League EV Scan", type="primary", use_container_width=True)
+scan_button = st.button("🚀 Run Ultra-Low Credit EV Scan", type="primary", use_container_width=True)
 
 st.markdown("---")
 
@@ -48,70 +47,16 @@ def devig_and_calc_ev(over_odds, under_odds, chosen_odds):
     
     return true_prob, ev_pct
 
-def fetch_event_odds(args):
-    sport, event, key, min_ev, target_books, main_markets = args
-    rows = []
-    event_id = event.get("id")
-    home_team = event.get("home_team", "Home")
-    away_team = event.get("away_team", "Away")
-    matchup_str = f"{away_team} @ {home_team}"
-    
-    for market in main_markets:
-        odds_url = f"https://api.the-odds-api.com/v4/sports/{sport}/events/{event_id}/odds"
-        odds_res = requests.get(odds_url, params={
-            "apiKey": key,
-            "regions": "us,us2",
-            "markets": market,
-            "oddsFormat": "american"
-        })
-        
-        if odds_res.status_code == 200:
-            data = odds_res.json()
-            for book in data.get("bookmakers", []):
-                book_key = book.get("key")
-                if book_key in target_books:
-                    book_title = target_books[book_key]
-                    for m in book.get("markets", []):
-                        if m.get("key") == market:
-                            outcomes = m.get("outcomes", [])
-                            if len(outcomes) >= 2:
-                                price1 = outcomes[0].get("price", -110)
-                                price2 = outcomes[1].get("price", -110)
-                                
-                                for outcome in outcomes:
-                                    side_name = outcome.get("name")
-                                    line_val = outcome.get("point", "")
-                                    price = outcome.get("price", -110)
-                                    
-                                    market_label = market.upper()
-                                    if line_val != "":
-                                        market_label = f"{market.capitalize()} ({line_val})"
-                                    
-                                    true_prob, ev_pct = devig_and_calc_ev(price1, price2, price)
-                                    
-                                    if ev_pct >= min_ev:
-                                        rows.append({
-                                            "Sport": sport.upper(),
-                                            "Matchup": matchup_str,
-                                            "Market": market_label,
-                                            "Bookmaker": book_title,
-                                            "Pick": side_name,
-                                            "Odds": price,
-                                            "True Prob": true_prob,
-                                            "EV (%)": round(ev_pct, 2)
-                                        })
-    return rows
-
 @st.cache_data(ttl=300)
-def fetch_major_market_bets(key, min_ev):
-    # Focused, high-liquidity major leagues list
+def fetch_low_credit_main_market_bets(key, min_ev):
+    # Focused, high-liquidity major leagues list (9 sports = 9 total API requests)
     sports_list = [
         "americanfootball_nfl", "americanfootball_ncaaf",
         "basketball_nba", "basketball_ncaab",
         "baseball_mlb", "icehockey_nhl",
         "soccer_epl", "soccer_spain_la_liga", "soccer_germany_bundesliga"
     ]
-    main_markets = ["h2h", "spreads", "totals"]
+    main_markets = "h2h,spreads,totals"
     
     target_books = {
         "draftkings": "DraftKings Sportsbook",
@@ -123,27 +68,63 @@ def fetch_major_market_bets(key, min_ev):
         "mybookie": "MyBookie.ag"
     }
     
-    task_args = []
+    all_rows = []
     
     try:
         for sport in sports_list:
-            events_url = f"https://api.the-odds-api.com/v4/sports/{sport}/events"
-            events_res = requests.get(events_url, params={"apiKey": key})
-            if events_res.status_code != 200:
-                continue
-            events = events_res.json()
+            # Single bulk odds request per sport (pulls all games and markets at once)
+            odds_url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds"
+            odds_res = requests.get(odds_url, params={
+                "apiKey": key,
+                "regions": "us,us2",
+                "markets": main_markets,
+                "oddsFormat": "american"
+            })
             
-            for event in events[:6]:
-                task_args.append((sport, event, key, min_ev, target_books, main_markets))
-        
-        all_rows = []
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = [executor.submit(fetch_event_odds, arg) for arg in task_args]
-            for future in as_completed(futures):
-                res = future.result()
-                if res:
-                    all_rows.extend(res)
-                    
+            if odds_res.status_code != 200:
+                continue
+                
+            events_data = odds_res.json()
+            
+            for event in events_data:
+                home_team = event.get("home_team", "Home")
+                away_team = event.get("away_team", "Away")
+                matchup_str = f"{away_team} @ {home_team}"
+                
+                for book in event.get("bookmakers", []):
+                    book_key = book.get("key")
+                    if book_key in target_books:
+                        book_title = target_books[book_key]
+                        for m in book.get("markets", []):
+                            market_key = m.get("key")
+                            outcomes = m.get("outcomes", [])
+                            
+                            if len(outcomes) >= 2:
+                                price1 = outcomes[0].get("price", -110)
+                                price2 = outcomes[1].get("price", -110)
+                                
+                                for outcome in outcomes:
+                                    side_name = outcome.get("name")
+                                    line_val = outcome.get("point", "")
+                                    price = outcome.get("price", -110)
+                                    
+                                    market_label = market_key.upper()
+                                    if line_val != "":
+                                        market_label = f"{market_key.capitalize()} ({line_val})"
+                                    
+                                    true_prob, ev_pct = devig_and_calc_ev(price1, price2, price)
+                                    
+                                    if ev_pct >= min_ev:
+                                        all_rows.append({
+                                            "Sport": sport.upper(),
+                                            "Matchup": matchup_str,
+                                            "Market": market_label,
+                                            "Bookmaker": book_title,
+                                            "Pick": side_name,
+                                            "Odds": price,
+                                            "True Prob": true_prob,
+                                            "EV (%)": round(ev_pct, 2)
+                                        })
         if all_rows:
             return pd.DataFrame(all_rows)
     except Exception as e:
@@ -154,8 +135,8 @@ def fetch_major_market_bets(key, min_ev):
 # Execution Flow on Scan Button Click
 if scan_button:
     st.session_state["scanned"] = True
-    with st.spinner("⚡ Scanning major leagues concurrently..."):
-        st.session_state["df_data"] = fetch_major_market_bets(api_key, min_edge)
+    with st.spinner("⚡ Running ultra-low credit scan across sports..."):
+        st.session_state["df_data"] = fetch_low_credit_main_market_bets(api_key, min_edge)
 
 # Render Results
 if st.session_state.get("scanned", False):
@@ -165,7 +146,7 @@ if st.session_state.get("scanned", False):
         filtered_df = df[df["EV (%)"] >= min_edge].sort_values(by="EV (%)", ascending=False).reset_index(drop=True)
 
         if not filtered_df.empty:
-            st.subheader(f"🔥 Major League Main Market Board (EV ≥ {min_edge}%)")
+            st.subheader(f"🔥 Main Market Straight Bet +EV Board (EV ≥ {min_edge}%)")
             st.markdown(f"Flat stake configured: **${flat_stake:.2f}** per straight bet on high-liquidity major leagues.")
             
             st.dataframe(
@@ -189,5 +170,5 @@ if st.session_state.get("scanned", False):
     else:
         st.warning("The market has no plays right now. Live/upcoming odds feeds are currently empty for the selected major leagues and books.")
 else:
-    st.info("👆 Click the **🚀 Run Major League EV Scan** button above to load live straight bets.")
+    st.info("👆 Click the **🚀 Run Ultra-Low Credit EV Scan** button above to load live straight bets.")
     
